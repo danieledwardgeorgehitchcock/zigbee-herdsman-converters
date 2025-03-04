@@ -10,7 +10,7 @@ import * as exposes from "./exposes";
 import {logger} from "./logger";
 import * as modernExtend from "./modernExtend";
 import * as globalStore from "./store";
-import type {Configure, Fz, KeyValue, KeyValueAny, ModernExtend, Tz} from "./types";
+import type {Configure, Fz, KeyValue, KeyValueAny, ModernExtend, Tz, Expose} from "./types";
 import * as utils from "./utils";
 import {exposeEndpoints, isObject} from "./utils";
 
@@ -160,10 +160,9 @@ const philipsModernExtend = {
             commandsResponse: {},
         });
 
-        result.onEvent = [...(result.onEvent ?? []), ...customClusterFC00.onEvent, ...customClusterFC01.onEvent, ...customClusterFC03.onEvent];
+        result.onEvent = [...(result.onEvent ?? []), ...customClusterFC01.onEvent, ...customClusterFC03.onEvent];
         result.configure = [
             ...(result.configure ?? []),
-            ...customClusterFC00.configure,
             ...customClusterFC01.configure,
             ...customClusterFC03.configure,
         ];
@@ -172,44 +171,6 @@ const philipsModernExtend = {
     },
 
     switch: () => {
-        args = {hueEffect: true, turnsOffAtBrightness1: true, ota: true, ...args};
-        if (args.hueEffect || args.gradient) args.effect = false;
-        if (args.color) args.color = {modes: ["xy", "hs"], ...(isObject(args.color) ? args.color : {})};
-        const result = modernExtend.light(args);
-        result.toZigbee.push(philipsTz.hue_power_on_behavior, philipsTz.hue_power_on_error);
-        if (args.hueEffect || args.gradient) {
-            result.toZigbee.push(philipsTz.effect);
-            const effects = ["blink", "breathe", "okay", "channel_change", "candle"];
-            if (args.color) effects.push("fireplace", "colorloop");
-            if (args.gradient) {
-                result.toZigbee.push(philipsTz.gradient_scene, philipsTz.gradient({reverse: true}));
-                result.fromZigbee.push(philipsFz.gradient);
-                effects.push("sunrise");
-                if (args.gradient !== true) {
-                    effects.push(...args.gradient.extraEffects);
-                }
-                result.exposes.push(
-                    // gradient_scene is deprecated, use gradient instead
-                    ...exposeEndpoints(e.enum("gradient_scene", ea.SET, Object.keys(gradientScenes)), args.endpointNames),
-                    ...exposeEndpoints(
-                        e
-                            .list("gradient", ea.ALL, e.text("hex", ea.ALL).withDescription("Color in RGB HEX format (eg #663399)"))
-                            .withLengthMin(1)
-                            .withLengthMax(9)
-                            .withDescription("List of RGB HEX colors"),
-                        args.endpointNames,
-                    ),
-                );
-                result.configure.push(async (device, coordinatorEndpoint, definition) => {
-                    for (const ep of device.endpoints.filter((ep) => ep.supportsInputCluster("manuSpecificPhilips2"))) {
-                        await ep.bind("manuSpecificPhilips2", coordinatorEndpoint);
-                    }
-                });
-            }
-            effects.push("finish_effect", "stop_effect", "stop_hue_effect");
-            result.exposes.push(...exposeEndpoints(e.enum("effect", ea.SET, effects), args.endpointNames));
-        }
-
         const customClusterFC00 = m.deviceAddCustomCluster("manuSpecificPhilips", {
             ID: 0xfc00,
             manufacturerCode: Zcl.ManufacturerCode.SIGNIFY_NETHERLANDS_B_V,
@@ -231,7 +192,14 @@ const philipsModernExtend = {
                 },
             },
         });
+ 
+        const exposes: Expose[] = [e.battery()];
+        const fromZigbee: Fz.Converter[] = [fz.battery];
+        const toZigbee: Tz.Converter[] = [];
+        const configure: Configure[] = []; 
 
+        const result: ModernExtend = {exposes, fromZigbee, toZigbee, configure, isModernExtend: true};
+      
         result.onEvent = [...(result.onEvent ?? []), ...customClusterFC00.onEvent];
         result.configure = [...(result.configure ?? []), ...customClusterFC00.configure];
 
@@ -244,7 +212,7 @@ const philipsModernExtend = {
         return result;
     },
     twilightOnOff: () => {
-        const fromZigbee = [fz.ignore_command_on, fz.ignore_command_off, fz.hue_twilight];
+        const fromZigbee = [fz.ignore_command_on, fz.ignore_command_off, philipsFz.hue_twilight];
         const exposes = [
             e.action([
                 "dot_press",
