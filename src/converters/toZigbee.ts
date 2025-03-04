@@ -2275,18 +2275,6 @@ export const kmpcil_res005_on_off: Tz.Converter = {
         await entity.read("genBinaryOutput", ["presentValue"]);
     },
 };
-export const hue_wall_switch_device_mode: Tz.Converter = {
-    key: ["device_mode"],
-    convertSet: async (entity, key, value, meta) => {
-        utils.assertString(value);
-        const values = ["single_rocker", "single_push_button", "dual_rocker", "dual_push_button"];
-        utils.validateValue(value, values);
-        await entity.write("genBasic", {52: {value: values.indexOf(value), type: 48}}, manufacturerOptions.hue);
-    },
-    convertGet: async (entity, key, meta) => {
-        await entity.read("genBasic", [0x0034], manufacturerOptions.hue);
-    },
-};
 export const danfoss_thermostat_occupied_heating_setpoint: Tz.Converter = {
     key: ["occupied_heating_setpoint"],
     convertSet: async (entity, key, value, meta) => {

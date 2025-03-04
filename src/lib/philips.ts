@@ -170,6 +170,73 @@ const philipsModernExtend = {
 
         return result;
     },
+
+    switch: () => {
+        args = {hueEffect: true, turnsOffAtBrightness1: true, ota: true, ...args};
+        if (args.hueEffect || args.gradient) args.effect = false;
+        if (args.color) args.color = {modes: ["xy", "hs"], ...(isObject(args.color) ? args.color : {})};
+        const result = modernExtend.light(args);
+        result.toZigbee.push(philipsTz.hue_power_on_behavior, philipsTz.hue_power_on_error);
+        if (args.hueEffect || args.gradient) {
+            result.toZigbee.push(philipsTz.effect);
+            const effects = ["blink", "breathe", "okay", "channel_change", "candle"];
+            if (args.color) effects.push("fireplace", "colorloop");
+            if (args.gradient) {
+                result.toZigbee.push(philipsTz.gradient_scene, philipsTz.gradient({reverse: true}));
+                result.fromZigbee.push(philipsFz.gradient);
+                effects.push("sunrise");
+                if (args.gradient !== true) {
+                    effects.push(...args.gradient.extraEffects);
+                }
+                result.exposes.push(
+                    // gradient_scene is deprecated, use gradient instead
+                    ...exposeEndpoints(e.enum("gradient_scene", ea.SET, Object.keys(gradientScenes)), args.endpointNames),
+                    ...exposeEndpoints(
+                        e
+                            .list("gradient", ea.ALL, e.text("hex", ea.ALL).withDescription("Color in RGB HEX format (eg #663399)"))
+                            .withLengthMin(1)
+                            .withLengthMax(9)
+                            .withDescription("List of RGB HEX colors"),
+                        args.endpointNames,
+                    ),
+                );
+                result.configure.push(async (device, coordinatorEndpoint, definition) => {
+                    for (const ep of device.endpoints.filter((ep) => ep.supportsInputCluster("manuSpecificPhilips2"))) {
+                        await ep.bind("manuSpecificPhilips2", coordinatorEndpoint);
+                    }
+                });
+            }
+            effects.push("finish_effect", "stop_effect", "stop_hue_effect");
+            result.exposes.push(...exposeEndpoints(e.enum("effect", ea.SET, effects), args.endpointNames));
+        }
+
+        const customClusterFC00 = m.deviceAddCustomCluster("manuSpecificPhilips", {
+            ID: 0xfc00,
+            manufacturerCode: Zcl.ManufacturerCode.SIGNIFY_NETHERLANDS_B_V,
+            attributes: {
+                config: {ID: 49, type: Zcl.DataType.BITMAP16},
+            },
+            commands: {},
+            commandsResponse: {
+                hueNotification: {
+                    ID: 0,
+                    parameters: [
+                        {name: "button", type: Zcl.DataType.UINT8},
+                        {name: "unknown1", type: Zcl.DataType.UINT24},
+                        {name: "type", type: Zcl.DataType.UINT8},
+                        {name: "unknown2", type: Zcl.DataType.UINT8},
+                        {name: "time", type: Zcl.DataType.UINT8},
+                        {name: "unknown2", type: Zcl.DataType.UINT8},
+                    ],
+                },
+            },
+        });
+
+        result.onEvent = [...(result.onEvent ?? []), ...customClusterFC00.onEvent];
+        result.configure = [...(result.configure ?? []), ...customClusterFC00.configure];
+
+        return result;
+    },
     onOff: (args?: modernExtend.OnOffArgs) => {
         args = {powerOnBehavior: false, ota: true, ...args};
         const result = modernExtend.onOff(args);
@@ -354,6 +421,18 @@ const philipsTz = {
             await entity.read("genBasic", [0x0033], manufacturerOptions);
         },
     } satisfies Tz.Converter,
+    hue_wall_switch_device_mode: {
+        key: ["device_mode"],
+        convertSet: async (entity, key, value, meta) => {
+            utils.assertString(value);
+            const values = ["single_rocker", "single_push_button", "dual_rocker", "dual_push_button"];
+            utils.validateValue(value, values);
+            await entity.write("genBasic", {52: {value: values.indexOf(value), type: 48}}, manufacturerOptions);
+        },
+        convertGet: async (entity, key, meta) => {
+            await entity.read("genBasic", [0x0034], manufacturerOptions);
+        },
+    } satisfies Tz.Converter,
 };
 export {philipsTz as tz};
 
@@ -521,6 +600,88 @@ const philipsFz = {
                 }
             }
             return {};
+        },
+    } satisfies Fz.Converter,
+    hue_wall_switch_device_mode: {
+        cluster: "genBasic",
+        type: ["attributeReport", "readResponse"],
+        convert: (model, msg, publish, options, meta) => {
+            if (msg.data["52"] !== undefined) {
+                const values = ["single_rocker", "single_push_button", "dual_rocker", "dual_push_button"];
+                return {device_mode: values[msg.data["52"]]};
+            }
+        },
+    } satisfies Fz.Converter,
+    hue_wall_switch: {
+        cluster: "manuSpecificPhilips",
+        type: "commandHueNotification",
+        convert: (model, msg, publish, options, meta) => {
+            if (utils.hasAlreadyProcessedMessage(msg, model)) return;
+            const buttonLookup: KeyValueAny = {1: "left", 2: "right"};
+            const button = buttonLookup[msg.data.button];
+            const typeLookup: KeyValueAny = {0: "press", 1: "hold", 2: "press_release", 3: "hold_release"};
+            const type = typeLookup[msg.data.type];
+            return {action: `${button}_${type}`};
+        },
+    } satisfies Fz.Converter,
+    hue_dimmer_switch: {
+        cluster: "manuSpecificPhilips",
+        type: "commandHueNotification",
+        options: [exposes.options.simulated_brightness()],
+        convert: (model, msg, publish, options, meta) => {
+            if (utils.hasAlreadyProcessedMessage(msg, model)) return;
+            const buttonLookup: KeyValueAny = {1: "on", 2: "up", 3: "down", 4: "off"};
+            const button = buttonLookup[msg.data.button];
+            const typeLookup: KeyValueAny = {0: "press", 1: "hold", 2: "press_release", 3: "hold_release"};
+            const type = typeLookup[msg.data.type];
+            const payload: KeyValueAny = {action: `${button}_${type}`};
+
+            // duration
+            if (type === "press") globalStore.putValue(msg.endpoint, "press_start", Date.now());
+            else if (type === "hold" || type === "release") {
+                payload.action_duration = (Date.now() - globalStore.getValue(msg.endpoint, "press_start")) / 1000;
+            }
+
+            // simulated brightness
+            if (options.simulated_brightness && (button === "down" || button === "up") && type !== "release") {
+                const opts: KeyValueAny = options.simulated_brightness;
+                const deltaOpts = typeof opts === "object" && opts.delta !== undefined ? opts.delta : 35;
+                const delta = button === "up" ? deltaOpts : deltaOpts * -1;
+                const brightness = globalStore.getValue(msg.endpoint, "brightness", 255) + delta;
+                payload.brightness = utils.numberWithinRange(brightness, 0, 255);
+                payload.action_brightness_delta = delta;
+                globalStore.putValue(msg.endpoint, "brightness", payload.brightness);
+            }
+
+            return payload;
+        },
+    } satisfies Fz.Converter,
+    hue_smart_button_event: {
+        cluster: "manuSpecificPhilips",
+        type: "commandHueNotification",
+        convert: (model, msg, publish, options, meta) => {
+            // Philips HUE Smart Button "ROM001": these events are always from "button 1"
+            const lookup: KeyValueAny = {0: "press", 1: "hold", 2: "release", 3: "release"};
+            return {action: lookup[msg.data.type]};
+        },
+    } satisfies Fz.Converter,
+    hue_twilight: {
+        cluster: "manuSpecificPhilips",
+        type: "commandHueNotification",
+        convert: (model, msg, publish, options, meta) => {
+            const buttonLookup: KeyValueAny = {1: "dot", 2: "hue"};
+            const button = buttonLookup[msg.data.button];
+            const typeLookup: KeyValueAny = {0: "press", 1: "hold", 2: "press_release", 3: "hold_release"};
+            const type = typeLookup[msg.data.type];
+            const payload: KeyValueAny = {action: `${button}_${type}`};
+
+            // duration
+            if (type === "press") globalStore.putValue(msg.endpoint, "press_start", Date.now());
+            else if (type === "hold" || type === "release") {
+                payload.action_duration = (Date.now() - globalStore.getValue(msg.endpoint, "press_start")) / 1000;
+            }
+
+            return payload;
         },
     } satisfies Fz.Converter,
 };

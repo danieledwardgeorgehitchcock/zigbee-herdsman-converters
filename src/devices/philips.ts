@@ -2313,7 +2313,7 @@ export const definitions: DefinitionWithExtend[] = [
         model: "929003017102",
         vendor: "Philips",
         description: "Hue wall switch module",
-        fromZigbee: [fz.battery, fz.hue_wall_switch_device_mode, fz.hue_wall_switch, fz.command_toggle, fz.command_move, fz.command_stop],
+        fromZigbee: [fz.battery, philips.fz.hue_wall_switch_device_mode, philips.fz.hue_wall_switch, fz.command_toggle, fz.command_move, fz.command_stop],
         exposes: [
             e.battery(),
             e.action([
@@ -2329,7 +2329,7 @@ export const definitions: DefinitionWithExtend[] = [
             ]),
             e.enum("device_mode", ea.ALL, ["single_rocker", "single_push_button", "dual_rocker", "dual_push_button"]),
         ],
-        toZigbee: [tz.hue_wall_switch_device_mode],
+        toZigbee: [philips.tz.hue_wall_switch_device_mode],
         configure: async (device, coordinatorEndpoint) => {
             const endpoint = device.getEndpoint(1);
             await reporting.bind(endpoint, coordinatorEndpoint, ["genPowerCfg", "genOnOff", "manuSpecificPhilips"]);
@@ -2348,7 +2348,7 @@ export const definitions: DefinitionWithExtend[] = [
             fz.ignore_command_off_with_effect,
             fz.ignore_command_step,
             fz.ignore_command_stop,
-            fz.hue_dimmer_switch,
+            philips.fz.hue_dimmer_switch,
             fz.battery,
         ],
         exposes: [
@@ -2400,7 +2400,7 @@ export const definitions: DefinitionWithExtend[] = [
             fz.ignore_command_off_with_effect,
             fz.ignore_command_step,
             fz.ignore_command_stop,
-            fz.hue_dimmer_switch,
+            philips.fz.hue_dimmer_switch,
             fz.battery,
             fz.command_recall,
         ],
@@ -2442,7 +2442,7 @@ export const definitions: DefinitionWithExtend[] = [
         model: "8718699693985",
         vendor: "Philips",
         description: "Hue smart button",
-        fromZigbee: [fz.command_on, fz.command_off_with_effect, fz.command_step, fz.hue_smart_button_event, fz.battery],
+        fromZigbee: [fz.command_on, fz.command_off_with_effect, fz.command_step, philips.fz.hue_smart_button_event, fz.battery],
         toZigbee: [],
         exposes: [e.battery(), e.action(["on", "off", "press", "hold", "release"])],
         configure: async (device, coordinatorEndpoint) => {
